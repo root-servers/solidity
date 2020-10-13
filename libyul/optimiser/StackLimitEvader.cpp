@@ -18,6 +18,7 @@
 #include <libyul/optimiser/StackLimitEvader.h>
 #include <libyul/optimiser/CallGraphGenerator.h>
 #include <libyul/optimiser/FunctionCallFinder.h>
+#include <libyul/optimiser/FunctionDefinitionCollector.h>
 #include <libyul/optimiser/NameDispenser.h>
 #include <libyul/optimiser/StackToMemoryMover.h>
 #include <libyul/backends/evm/EVMDialect.h>
@@ -28,6 +29,7 @@
 #include <libyul/Utilities.h>
 #include <libsolutil/Algorithms.h>
 #include <libsolutil/CommonData.h>
+#include <boost/range/adaptors.hpp>
 
 using namespace std;
 using namespace solidity;
@@ -66,12 +68,52 @@ struct MemoryOffsetAllocator
 		if (unreachableVariables.count(_function))
 		{
 			yulAssert(!slotAllocations.count(_function), "");
-			for (YulString variable: unreachableVariables.at(_function))
-				if (variable.empty())
-				{
-					// TODO: Too many function arguments or return parameters.
-				}
+
+			if (functionDefinitions.count(_function))
+			{
+				FunctionDefinition const* functionDefinition = functionDefinitions.at(_function);
+				yulAssert(functionDefinition, "");
+
+				vector<YulString> parameters;
+				vector<YulString> returnVariables;
+				size_t unmovableArguments = 0;
+
+				for (TypedName const& param: functionDefinition->parameters)
+					parameters.emplace_back(param.name);
+
+				// If the function only has one return variable, the function can be called in complex
+				// expressions, so we always keep the return variable.
+				// Otherwise all return variables are eligible for moving.
+				if (functionDefinition->returnVariables.size() == 1)
+					unmovableArguments++;
 				else
+					for (TypedName const& returnVariable: functionDefinition->returnVariables)
+						returnVariables.emplace_back(returnVariable.name);
+
+				// First try to	move return arguments.
+				while (
+					!returnVariables.empty() &&
+					unmovableArguments + returnVariables.size() + parameters.size() > 16
+				)
+				{
+					slotAllocations[returnVariables.back()] = requiredSlots++;
+					returnVariables.pop_back();
+				}
+
+				// In case moving return variables was not enough, move parameters as well from right to left.
+				while (unmovableArguments + returnVariables.size() + parameters.size() > 16)
+				{
+					slotAllocations[parameters.back()] = requiredSlots++;
+					parameters.pop_back();
+				}
+			}
+
+			// Assign slots for all variables that become unreachable in the function body, if the above did not
+			// assign a slot for them already.
+			for (YulString variable: unreachableVariables.at(_function))
+				// The empty case is a function with too many arguments or return values,
+				// which was already handled above.
+				if (!variable.empty() && !slotAllocations.count(variable))
 					slotAllocations[variable] = requiredSlots++;
 		}
 
@@ -80,6 +122,7 @@ struct MemoryOffsetAllocator
 
 	map<YulString, set<YulString>> const& unreachableVariables;
 	map<YulString, set<YulString>> const& callGraph;
+	map<YulString, FunctionDefinition const*> const& functionDefinitions;
 
 	map<YulString, uint64_t> slotAllocations{};
 	map<YulString, uint64_t> slotsRequiredForFunction{};
@@ -128,7 +171,9 @@ void StackLimitEvader::run(
 		if (_unreachableVariables.count(function))
 			return;
 
-	MemoryOffsetAllocator memoryOffsetAllocator{_unreachableVariables, callGraph.functionCalls};
+	map<YulString, FunctionDefinition const*> functionDefinitions = FunctionDefinitionCollector::run(*_object.code);
+
+	MemoryOffsetAllocator memoryOffsetAllocator{_unreachableVariables, callGraph.functionCalls, functionDefinitions};
 	uint64_t requiredSlots = memoryOffsetAllocator.run();
 
 	StackToMemoryMover::run(_context, reservedMemory, memoryOffsetAllocator.slotAllocations, requiredSlots, *_object.code);

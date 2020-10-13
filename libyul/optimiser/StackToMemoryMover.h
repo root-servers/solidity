@@ -22,6 +22,9 @@
 
 #include <libyul/optimiser/ASTWalker.h>
 #include <libyul/optimiser/OptimiserStep.h>
+#include <libyul/AsmDataForward.h>
+
+#include <liblangutil/SourceLocation.h>
 #include <libsolutil/Common.h>
 
 namespace solidity::yul
@@ -96,6 +99,7 @@ public:
 	);
 	using ASTModifier::operator();
 
+	void operator()(FunctionCall& _functionCall) override;
 	void operator()(FunctionDefinition& _functionDefinition) override;
 	void operator()(Block& _block) override;
 	void visit(Expression& _expression) override;
@@ -118,15 +122,23 @@ private:
 		std::map<YulString, uint64_t> const& m_memorySlots;
 		uint64_t m_numRequiredSlots = 0;
 	};
+	struct FunctionMoveInfo
+	{
+		std::vector<FunctionDefinition const*> parameterHelperFunctions;
+		std::vector<std::optional<YulString>> returnVariableSlots;
+	};
 
 	StackToMemoryMover(
 		OptimiserStepContext& _context,
-		VariableMemoryOffsetTracker const& _memoryOffsetTracker
+		VariableMemoryOffsetTracker const& _memoryOffsetTracker,
+		std::map<YulString, FunctionMoveInfo> const& _functionMoveInfo
 	);
 
 	OptimiserStepContext& m_context;
 	VariableMemoryOffsetTracker const& m_memoryOffsetTracker;
 	NameDispenser& m_nameDispenser;
+	std::map<YulString, FunctionMoveInfo> const& m_functionMoveInfo;
+	std::vector<std::optional<YulString>> const* m_slotsForCurrentReturns = nullptr;
 };
 
 }
