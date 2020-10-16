@@ -281,23 +281,63 @@ void StackToMemoryMover::operator()(FunctionDefinition& _functionDefinition)
 void StackToMemoryMover::operator()(Block& _block)
 {
 	using OptionalStatements = std::optional<vector<Statement>>;
-	auto rewriteAssignmentOrVariableDeclaration = [&](
+	auto rewriteAssignmentOrVariableDeclarationToFunctionCall = [&](
 		auto& _stmt,
 		auto& _variables
 	) -> OptionalStatements {
 		using StatementType = decay_t<decltype(_stmt)>;
 		if (_stmt.value)
 			visit(*_stmt.value);
-		bool leftHandSideNeedsMoving = util::contains_if(_variables, [&](auto const& var) {
-			return m_memoryOffsetTracker(var.name);
-		});
-		if (!m_slotsForCurrentReturns && !leftHandSideNeedsMoving)
+		if (!m_slotsForCurrentReturns)
+			return {};
+
+		langutil::SourceLocation  loc = _stmt.location;
+		yulAssert(_variables.size() != 1, "");
+		yulAssert(_stmt.value, "");
+
+		std::vector<Statement> result;
+		vector<VariableDeclaration> tempDecls;
+		vector<Statement> memoryAssignments;
+		vector<Statement> variableAssignments;
+		for (optional<YulString> slot: *m_slotsForCurrentReturns | boost::adaptors::reversed)
+			if (slot)
+			{
+				auto var = move(_variables.back());
+				_variables.pop_back();
+				variableAssignments.emplace_back(StatementType{
+					loc, { std::move(var) },
+					make_unique<Expression>(generateMemoryLoad(
+						m_context.dialect,
+						loc,
+						*slot
+					))
+				});
+			}
+		if (_variables.empty())
+			result.emplace_back(ExpressionStatement{loc, move(*_stmt.value)});
+		else
+			result.emplace_back(move(_stmt));
+
+		m_slotsForCurrentReturns = nullptr;
+		result += move(tempDecls);
+		std::reverse(memoryAssignments.begin(), memoryAssignments.end());
+		result += std::move(memoryAssignments);
+		std::reverse(variableAssignments.begin(), variableAssignments.end());
+		result += std::move(variableAssignments);
+		return OptionalStatements{move(result)};
+	};
+
+	auto rewriteAssignmentOrVariableDeclarationLeftHandSide = [&](
+		auto& _stmt,
+		auto& _variables
+	) -> OptionalStatements {
+		using StatementType = decay_t<decltype(_stmt)>;
+		if (!util::contains_if(_variables, [&](auto const& var)	{ return m_memoryOffsetTracker(var.name); }))
 			return {};
 
 		langutil::SourceLocation  loc = _stmt.location;
 		if (_variables.size() == 1)
 		{
-			yulAssert(!m_slotsForCurrentReturns, "");
 			optional<YulString> offset = m_memoryOffsetTracker(_variables.front().name);
 			yulAssert(offset, "");
 			return generateMemoryStore(
@@ -309,73 +349,30 @@ void StackToMemoryMover::operator()(Block& _block)
 		}
 		yulAssert(_stmt.value, "");
 
-		std::vector<Statement> result;
-		vector<VariableDeclaration> tempDecls;
 		vector<Statement> memoryAssignments;
 		vector<Statement> variableAssignments;
-		if (leftHandSideNeedsMoving)
+		VariableDeclaration tempDecl{loc, {}, std::move(_stmt.value)};
+		for (auto& var: _variables)
 		{
-			if (!m_slotsForCurrentReturns || m_slotsForCurrentReturns->empty() || !m_slotsForCurrentReturns->front())
-				tempDecls.emplace_back(VariableDeclaration{loc, {}, std::move(_stmt.value)});
-			else
-				result.emplace_back(ExpressionStatement{loc, move(*_stmt.value)});
-			for (size_t i = 0; i < _variables.size(); ++i)
-			{
-				auto& var = _variables[i];
-				Expression value = [&]() -> Expression{
-					if (m_slotsForCurrentReturns && !m_slotsForCurrentReturns->empty())
-						if (auto slot = m_slotsForCurrentReturns->at(i))
-							tempDecls.emplace_back(VariableDeclaration{loc, {}, std::make_unique<Expression>(
-								generateMemoryLoad(
-									m_context.dialect,
-									loc,
-									*slot
-								)
-							)});
-					YulString tempVarName = m_nameDispenser.newName(var.name);
-					tempDecls.back().variables.emplace_back(TypedName{var.location, tempVarName, {}});
-					return Identifier{loc, tempVarName};
-				}();
+			YulString tempVarName = m_nameDispenser.newName(var.name);
+			tempDecl.variables.emplace_back(TypedName{var.location, tempVarName, {}});
 
-				if (optional<YulString> offset = m_memoryOffsetTracker(var.name))
-					memoryAssignments += generateMemoryStore(
-						m_context.dialect,
-						loc,
-						*offset,
-						move(value)
-					);
-				else
-					variableAssignments.emplace_back(StatementType{
-						loc, { std::move(var) },
-						make_unique<Expression>(move(value))
-					});
-			}
-		}
-		else
-		{
-			yulAssert(m_slotsForCurrentReturns, "");
-			for (optional<YulString> slot: *m_slotsForCurrentReturns | boost::adaptors::reversed)
-				if (slot)
-				{
-					auto var = move(_variables.back());
-					_variables.pop_back();
-					variableAssignments.emplace_back(StatementType{
-						loc, { std::move(var) },
-						make_unique<Expression>(generateMemoryLoad(
-							m_context.dialect,
-							loc,
-							*slot
-						))
-					});
-				}
-			if (_variables.empty())
-				result.emplace_back(ExpressionStatement{loc, move(*_stmt.value)});
+			if (optional<YulString> offset = m_memoryOffsetTracker(var.name))
+				memoryAssignments += generateMemoryStore(
+					m_context.dialect,
+					loc,
+					*offset,
+					Identifier{loc, tempVarName}
+				);
 			else
-				result.emplace_back(move(_stmt));
+				variableAssignments.emplace_back(StatementType{
+					loc, { std::move(var) },
+					make_unique<Expression>(Identifier{loc, tempVarName})
+				});
 		}
 
-		m_slotsForCurrentReturns = nullptr;
-		result += move(tempDecls);
+		std::vector<Statement> result;
+		result.emplace_back(std::move(tempDecl));
 		std::reverse(memoryAssignments.begin(), memoryAssignments.end());
 		result += std::move(memoryAssignments);
 		std::reverse(variableAssignments.begin(), variableAssignments.end());
@@ -390,13 +387,30 @@ void StackToMemoryMover::operator()(Block& _block)
 			return std::visit(util::GenericVisitor{
 				[&](Assignment& _assignment) -> OptionalStatements
 				{
-					return rewriteAssignmentOrVariableDeclaration(_assignment, _assignment.variableNames);
+					return rewriteAssignmentOrVariableDeclarationToFunctionCall(_assignment, _assignment.variableNames);
 				},
 				[&](VariableDeclaration& _varDecl) -> OptionalStatements
 				{
-					return rewriteAssignmentOrVariableDeclaration(_varDecl, _varDecl.variables);
+					return rewriteAssignmentOrVariableDeclarationToFunctionCall(_varDecl, _varDecl.variables);
 				},
 				[&](auto& _stmt) -> OptionalStatements { (*this)(_stmt); return {}; }
+			}, _statement);
+		}
+	);
+	util::iterateReplacing(
+		_block.statements,
+		[&](Statement& _statement)
+		{
+			return std::visit(util::GenericVisitor{
+				[&](Assignment& _assignment) -> OptionalStatements
+				{
+					return rewriteAssignmentOrVariableDeclarationLeftHandSide(_assignment, _assignment.variableNames);
+				},
+				[&](VariableDeclaration& _varDecl) -> OptionalStatements
+				{
+					return rewriteAssignmentOrVariableDeclarationLeftHandSide(_varDecl, _varDecl.variables);
+				},
+				util::VisitorFallback<OptionalStatements>{}
 			}, _statement);
 		}
 	);

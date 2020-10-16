@@ -134,6 +134,18 @@ private:
 		std::map<YulString, FunctionMoveInfo> const& _functionMoveInfo
 	);
 
+	template<typename StatementType, typename VariableType>
+	std::optional<std::vector<Statement>> rewriteAssignmentOrVariableDeclarationToFunctionCalls(
+		StatementType& _stmt,
+		std::vector<VariableType>& _variables
+	);
+
+	template<typename StatementType, typename VariableType>
+	std::optional<std::vector<Statement>> rewriteAssignmentOrVariableDeclarationLeftHandSide(
+		StatementType& _stmt,
+		std::vector<VariableType>& _variables
+	);
+
 	OptimiserStepContext& m_context;
 	VariableMemoryOffsetTracker const& m_memoryOffsetTracker;
 	NameDispenser& m_nameDispenser;
