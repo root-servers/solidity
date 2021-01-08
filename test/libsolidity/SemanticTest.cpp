@@ -13,6 +13,7 @@
 */
 
 #include <test/libsolidity/SemanticTest.h>
+#include <test/libsolidity/util/BytesUtils.h>
 #include <libsolutil/Whiskers.h>
 #include <libyul/Exceptions.h>
 #include <test/Common.h>
@@ -25,6 +26,7 @@
 #include <cctype>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 
 using namespace std;
@@ -47,6 +49,15 @@ SemanticTest::SemanticTest(string const& _filename, langutil::EVMVersion _evmVer
 	m_lineOffset(m_reader.lineNumber()),
 	m_enforceViaYul(enforceViaYul)
 {
+	using namespace std::placeholders;
+	m_builtins
+		= {{"smoke",
+			{
+				{"test0", {std::bind(&SemanticTest::builtinSmokeTest, this, _1)}},
+				{"test1", {std::bind(&SemanticTest::builtinSmokeTest, this, _1)}},
+				{"test2", {std::bind(&SemanticTest::builtinSmokeTest, this, _1)}},
+			}}};
+
 	string choice = m_reader.stringSetting("compileViaYul", "default");
 	if (choice == "also")
 	{
@@ -197,6 +208,21 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 			bytes output;
 			if (test.call().kind == FunctionCall::Kind::LowLevel)
 				output = callLowLevel(test.call().arguments.rawBytes(), test.call().value.value);
+			else if (test.call().kind == FunctionCall::Kind::Builtin)
+			{
+				std::vector<string> builtinPath;
+				boost::split(builtinPath, test.call().signature, boost::is_any_of("."));
+				soltestAssert(builtinPath.size() == 2, "");
+				auto builtin = m_builtins[builtinPath.front()][builtinPath.back()];
+				std::optional<bytes> builtinOutput{builtin.function(test.call())};
+				if (builtinOutput.has_value())
+				{
+					test.setFailure(false);
+					output = builtinOutput.value();
+				}
+				else
+					test.setFailure(true);
+			}
 			else
 			{
 				soltestAssert(
@@ -212,15 +238,38 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 				);
 			}
 
-			bool outputMismatch = (output != test.call().expectations.rawBytes());
-			// Pre byzantium, it was not possible to return failure data, so we disregard
-			// output mismatch for those EVM versions.
-			if (test.call().expectations.failure && !m_transactionSuccessful && !m_evmVersion.supportsReturndata())
-				outputMismatch = false;
-			if (m_transactionSuccessful != !test.call().expectations.failure || outputMismatch)
-				success = false;
+			bytes expectationOutput;
+			if (test.call().expectations.builtin)
+			{
+				std::vector<string> builtinPath;
+				boost::split(builtinPath, test.call().expectations.builtin->signature, boost::is_any_of("."));
+				assert(builtinPath.size() == 2);
+				auto builtin = m_builtins[builtinPath.front()][builtinPath.back()];
+				std::optional<bytes> builtinResult = builtin.function(*test.call().expectations.builtin);
+				if (builtinResult.has_value())
+					expectationOutput = builtinResult.value();
+				else
+					test.setFailure(true);
+			}
+			else
+				expectationOutput = test.call().expectations.rawBytes();
 
-			test.setFailure(!m_transactionSuccessful);
+			bool outputMismatch = (output != expectationOutput);
+			if (test.call().kind == FunctionCall::Kind::Builtin)
+			{
+				if (outputMismatch)
+					success = false;
+			}
+			else
+			{
+				// Pre byzantium, it was not possible to return failure data, so we disregard
+				// output mismatch for those EVM versions.
+				if (test.call().expectations.failure && !m_transactionSuccessful && !m_evmVersion.supportsReturndata())
+					outputMismatch = false;
+				if (m_transactionSuccessful != !test.call().expectations.failure || outputMismatch)
+					success = false;
+				test.setFailure(!m_transactionSuccessful);
+			}
 			test.setRawBytes(std::move(output));
 			test.setContractABI(m_compiler.contractABI(m_compiler.lastContractName()));
 		}
@@ -340,13 +389,30 @@ void SemanticTest::printUpdatedSettings(ostream& _stream, string const& _linePre
 
 void SemanticTest::parseExpectations(istream& _stream)
 {
-	TestFileParser parser{_stream};
+	TestFileParser parser{_stream, &this->m_builtins};
 	auto functionCalls = parser.parseFunctionCalls(m_lineOffset);
 	std::move(functionCalls.begin(), functionCalls.end(), back_inserter(m_tests));
 }
 
-bool SemanticTest::deploy(string const& _contractName, u256 const& _value, bytes const& _arguments, map<string, solidity::test::Address> const& _libraries)
+bool SemanticTest::deploy(
+	string const& _contractName,
+	u256 const& _value,
+	bytes const& _arguments,
+	map<string, solidity::test::Address> const& _libraries)
 {
 	auto output = compileAndRunWithoutCheck(m_sources.sources, _value, _contractName, _arguments, _libraries);
 	return !output.empty() && m_transactionSuccessful;
+}
+
+std::optional<bytes> SemanticTest::builtinSmokeTest(FunctionCall const& call)
+{
+	// This function is only used in test/libsolidity/semanticTests/builtins/smoke.sol.
+	std::optional<bytes> result;
+	if (call.arguments.parameters.size() < 3)
+	{
+		result = bytes();
+		for (const auto& parameter: call.arguments.parameters)
+			result.value() += util::toBigEndian(u256{util::fromHex(parameter.rawString)});
+	}
+	return result;
 }
