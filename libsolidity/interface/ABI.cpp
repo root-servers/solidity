@@ -121,6 +121,25 @@ Json::Value ABI::generate(ContractDefinition const& _contractDef)
 		abi.emplace(std::move(event));
 	}
 
+	// TODO should use "used errors" once implemented,
+	// but should also include all errors defined in the contract.
+	for (ErrorDefinition const* error: _contractDef.errors())
+	{
+		Json::Value errorJson;
+		errorJson["type"] = "error";
+		errorJson["name"] = error->name();
+		errorJson["inputs"] = Json::arrayValue;
+		for (auto const& p: error->parameters())
+		{
+			Type const* type = p->annotation().type->interfaceType(false);
+			solAssert(type, "");
+			errorJson["inputs"].append(
+				formatType(p->name(), *type, *p->annotation().type, false)
+			);
+		}
+		abi.emplace(move(errorJson));
+	}
+
 	Json::Value abiJson{Json::arrayValue};
 	for (auto& f: abi)
 		abiJson.append(std::move(f));
