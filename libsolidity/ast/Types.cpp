@@ -1802,27 +1802,28 @@ MemberList::MemberMap ArrayType::nativeMembers(ASTNode const*) const
 		members.emplace_back("length", TypeProvider::uint256());
 		if (isDynamicallySized() && location() == DataLocation::Storage)
 		{
+			Type const* thisAsPointer = TypeProvider::withLocation(this, location(), true);
 			members.emplace_back("push", TypeProvider::function(
-				TypePointers{},
+				TypePointers{thisAsPointer},
 				TypePointers{baseType()},
-				strings{},
 				strings{string()},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush
-			));
+				strings{string()},
+				FunctionType::Kind::ArrayPush
+			)->asBoundFunction());
 			members.emplace_back("push", TypeProvider::function(
-				TypePointers{baseType()},
+				TypePointers{thisAsPointer, baseType()},
 				TypePointers{},
-				strings{string()},
+				strings{string(),string()},
 				strings{},
-				isByteArray() ? FunctionType::Kind::ByteArrayPush : FunctionType::Kind::ArrayPush
-			));
+				FunctionType::Kind::ArrayPush
+			)->asBoundFunction());
 			members.emplace_back("pop", TypeProvider::function(
+				TypePointers{thisAsPointer},
 				TypePointers{},
-				TypePointers{},
-				strings{},
+				strings{string()},
 				strings{},
 				FunctionType::Kind::ArrayPop
-			));
+			)->asBoundFunction());
 		}
 	}
 	return members;
@@ -2870,7 +2871,6 @@ string FunctionType::richIdentifier() const
 	case Kind::MulMod: id += "mulmod"; break;
 	case Kind::ArrayPush: id += "arraypush"; break;
 	case Kind::ArrayPop: id += "arraypop"; break;
-	case Kind::ByteArrayPush: id += "bytearraypush"; break;
 	case Kind::ObjectCreation: id += "objectcreation"; break;
 	case Kind::Assert: id += "assert"; break;
 	case Kind::Require: id += "require"; break;
@@ -3077,8 +3077,8 @@ vector<tuple<string, TypePointer>> FunctionType::makeStackItems() const
 		break;
 	case Kind::ArrayPush:
 	case Kind::ArrayPop:
-	case Kind::ByteArrayPush:
-		slots = {make_tuple("slot", TypeProvider::uint256())};
+		solAssert(bound(), "");
+		slots = {};
 		break;
 	default:
 		break;
@@ -3477,8 +3477,6 @@ TypePointer FunctionType::copyAndSetCallOptions(bool _setGas, bool _setValue, bo
 FunctionTypePointer FunctionType::asBoundFunction() const
 {
 	solAssert(!m_parameterTypes.empty(), "");
-	FunctionDefinition const* fun = dynamic_cast<FunctionDefinition const*>(m_declaration);
-	solAssert(fun && fun->libraryFunction(), "");
 	solAssert(!m_gasSet, "");
 	solAssert(!m_valueSet, "");
 	solAssert(!m_saltSet, "");
