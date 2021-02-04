@@ -6,6 +6,7 @@ Language Features:
 Compiler Features:
  * AST: Export NatSpec comments above each statement as their documentation.
  * Optimizer: Simple inlining when jumping to small blocks that jump again after a few side-effect free opcodes.
+ * Yul EVM Code Transform: Stack Optimization: Reuse slots of unused function arguments and defer allocating stack slots for return variables until after any expression statements and assignments that do not reference them.
 
 
 Bugfixes:
