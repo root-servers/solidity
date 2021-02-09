@@ -12,6 +12,7 @@ Bugfixes:
  * Type Checker: Fix internal error when override specifier is not a contract.
  * SMTChecker: Fix missing type constraints on block and transaction variables in the deployment phase.
  * AST: Added ``referencedDeclaration`` for enum members.
+ * Natspec: Fix internal error when base functions has more return parameters.
 
 
 AST Changes:
