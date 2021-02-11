@@ -221,6 +221,10 @@ string TestFunctionCall::format(
 				stream << comment << m_call.expectations.comment << comment;
 			}
 		}
+
+		if (m_testHooks != nullptr)
+			for (auto& hook: *m_testHooks)
+				stream << hook->formatFunctionCall(*this, _errorReporter, _linePrefix, _renderResult, _highlight);
 	};
 
 	formatOutput(m_call.displayMode == FunctionCall::DisplayMode::SingleLine);

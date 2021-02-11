@@ -12,15 +12,19 @@
 	along with solidity.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <test/libsolidity/SemanticTest.h>
-#include <test/libsolidity/util/BytesUtils.h>
-#include <libsolutil/Whiskers.h>
-#include <libyul/Exceptions.h>
-#include <test/Common.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/throw_exception.hpp>
+#include <libsolutil/Whiskers.h>
+#include <libyul/Exceptions.h>
+#include <test/Common.h>
+#include <test/libsolidity/SemanticTest.h>
+#include <test/libsolidity/util/BytesUtils.h>
+
+#include <test/libsolidity/Builtin.h>
+#include <test/libsolidity/TestHook.h>
+#include <test/libsolidity/hooks/SmokeHook.h>
 
 #include <algorithm>
 #include <cctype>
@@ -50,13 +54,23 @@ SemanticTest::SemanticTest(string const& _filename, langutil::EVMVersion _evmVer
 	m_enforceViaYul(enforceViaYul)
 {
 	using namespace std::placeholders;
-	m_builtins
-		= {{"smoke",
-			{
-				{"test0", {std::bind(&SemanticTest::builtinSmokeTest, this, _1)}},
-				{"test1", {std::bind(&SemanticTest::builtinSmokeTest, this, _1)}},
-				{"test2", {std::bind(&SemanticTest::builtinSmokeTest, this, _1)}},
-			}}};
+	// clang-format off
+	auto simpleSmokeBuiltin = std::make_shared<Builtin>(
+		std::bind(&SemanticTest::builtinSmokeTest, this, _1)
+	);
+	m_builtins =
+		{
+			{"smoke",
+				{{"test0", simpleSmokeBuiltin},
+			 	{"test1", simpleSmokeBuiltin},
+			 	{"test2", simpleSmokeBuiltin}}
+			}
+		};
+	m_testHooks =
+		{
+			std::make_shared<SmokeHook>()
+		};
+	// clang-format on
 
 	string choice = m_reader.stringSetting("compileViaYul", "default");
 	if (choice == "also")
@@ -130,7 +144,13 @@ TestCase::TestResult SemanticTest::run(ostream& _stream, string const& _linePref
 	return result;
 }
 
-TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _linePrefix, bool _formatted, bool _compileViaYul, bool _compileToEwasm)
+void SemanticTest::addBuiltin(std::string _module, std::string _function, std::shared_ptr<Builtin> _builtin)
+{
+	m_builtins[_module][_function] = _builtin;
+}
+
+TestCase::TestResult SemanticTest::runTest(
+	ostream& _stream, string const& _linePrefix, bool _formatted, bool _compileViaYul, bool _compileToEwasm)
 {
 	bool success = true;
 
@@ -160,11 +180,28 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 
 	bool constructed = false;
 
+	// Iterate through the test calls and set the previous call.
+	TestFunctionCall* previousCall{nullptr};
 	for (auto& test: m_tests)
 	{
+		test.setPreviousCall(previousCall);
+		test.setTestHooks(&m_testHooks);
+		previousCall = &test;
+	}
+
+	for (auto& hook: m_testHooks)
+		hook->beginTestCase();
+
+	for (auto& test: m_tests)
+	{
+		for (auto& hook: m_testHooks)
+			hook->beforeFunctionCall(test);
+
 		if (constructed)
 		{
-			soltestAssert(test.call().kind != FunctionCall::Kind::Library, "Libraries have to be deployed before any other call.");
+			soltestAssert(
+				test.call().kind != FunctionCall::Kind::Library,
+				"Libraries have to be deployed before any other call.");
 			soltestAssert(
 				test.call().kind != FunctionCall::Kind::Constructor,
 				"Constructor has to be the first function call expect for library deployments.");
@@ -214,7 +251,7 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 				boost::split(builtinPath, test.call().signature, boost::is_any_of("."));
 				soltestAssert(builtinPath.size() == 2, "");
 				auto builtin = m_builtins[builtinPath.front()][builtinPath.back()];
-				std::optional<bytes> builtinOutput{builtin.function(test.call())};
+				std::optional<bytes> builtinOutput{builtin->builtin(test.call())};
 				if (builtinOutput.has_value())
 				{
 					test.setFailure(false);
@@ -243,9 +280,9 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 			{
 				std::vector<string> builtinPath;
 				boost::split(builtinPath, test.call().expectations.builtin->signature, boost::is_any_of("."));
-				assert(builtinPath.size() == 2);
+				soltestAssert(builtinPath.size() == 2, "");
 				auto builtin = m_builtins[builtinPath.front()][builtinPath.back()];
-				std::optional<bytes> builtinResult = builtin.function(*test.call().expectations.builtin);
+				std::optional<bytes> builtinResult = builtin->builtin(*test.call().expectations.builtin);
 				if (builtinResult.has_value())
 					expectationOutput = builtinResult.value();
 				else
@@ -273,7 +310,28 @@ TestCase::TestResult SemanticTest::runTest(ostream& _stream, string const& _line
 			test.setRawBytes(std::move(output));
 			test.setContractABI(m_compiler.contractABI(m_compiler.lastContractName()));
 		}
+
+		for (auto& hook: m_testHooks)
+			hook->afterFunctionCall(test);
 	}
+
+	// The artificialFunctionCall is an artificially created function call,
+	// where it's previous call is pointing to the last call of the test.
+	TestFunctionCall artificialFunctionCall(FunctionCall{});
+	artificialFunctionCall.setTestHooks(&m_testHooks);
+	artificialFunctionCall.setPreviousCall(previousCall);
+	for (auto& hook: m_testHooks)
+	{
+		hook->beforeFunctionCall(artificialFunctionCall);
+		hook->afterFunctionCall(artificialFunctionCall);
+	}
+
+	for (auto& hook: m_testHooks)
+		hook->endTestCase();
+
+	for (auto& test: m_tests)
+		for (auto& hook: m_testHooks)
+			success &= hook->verifyFunctionCall(test);
 
 	if (!m_runWithYul && _compileViaYul)
 	{

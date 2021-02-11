@@ -11,3 +11,4 @@ contract ClientReceipt {
 // smoke.test2: 2, 3 -> smoke.test2: 2, 3
 // smoke.test2: 2, 3, 4 -> FAILURE
 // smoke.test2: 2, 3, 4 -> smoke.test2: 2, 3, 4
+// smoke.test0 ->

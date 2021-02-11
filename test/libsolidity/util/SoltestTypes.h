@@ -303,9 +303,4 @@ struct FunctionCall
 	bool omitsArrow = true;
 };
 
-struct BuiltinFunction {
-	std::function<std::optional<bytes>(FunctionCall const&)> function;
-};
-using BuiltinFunctions = std::map<std::string, std::map<std::string, BuiltinFunction>>;
-
 }

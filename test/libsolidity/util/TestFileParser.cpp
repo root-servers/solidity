@@ -180,8 +180,7 @@ void TestFileParser::checkBuiltinFunction(std::string const& signature)
 	auto builtin = module->second.find(builtinPath.back());
 	if (builtin == module->second.end())
 		throw TestParserError(
-			"builtin function '" + builtinPath.back() + "' not found in module '"
-				+ builtinPath.front() + "'");
+			"builtin function '" + builtinPath.back() + "' not found in module '" + builtinPath.front() + "'");
 }
 
 bool TestFileParser::accept(Token _token, bool const _expect)
