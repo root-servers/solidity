@@ -22,7 +22,7 @@
 
 #include <libyul/optimiser/ASTWalker.h>
 #include <libyul/optimiser/OptimiserStep.h>
-#include <libyul/AsmDataForward.h>
+#include <libyul/ASTForward.h>
 
 #include <liblangutil/SourceLocation.h>
 #include <libsolutil/Common.h>
@@ -99,9 +99,9 @@ public:
 	);
 	using ASTModifier::operator();
 
-	void operator()(FunctionCall& _functionCall) override;
 	void operator()(FunctionDefinition& _functionDefinition) override;
 	void operator()(Block& _block) override;
+	using ASTModifier::visit;
 	void visit(Expression& _expression) override;
 private:
 	class VariableMemoryOffsetTracker
@@ -124,14 +124,13 @@ private:
 	};
 	struct FunctionMoveInfo
 	{
-		std::vector<FunctionDefinition const*> parameterHelperFunctions;
 		std::vector<std::optional<YulString>> returnVariableSlots;
 	};
 
 	StackToMemoryMover(
 		OptimiserStepContext& _context,
 		VariableMemoryOffsetTracker const& _memoryOffsetTracker,
-		std::map<YulString, FunctionMoveInfo> const& _functionMoveInfo
+		std::map<YulString, std::vector<TypedName>> _functionReturnVariables
 	);
 
 	template<typename StatementType, typename VariableType>
@@ -149,8 +148,8 @@ private:
 	OptimiserStepContext& m_context;
 	VariableMemoryOffsetTracker const& m_memoryOffsetTracker;
 	NameDispenser& m_nameDispenser;
-	std::map<YulString, FunctionMoveInfo> const& m_functionMoveInfo;
-	std::vector<std::optional<YulString>> const* m_slotsForCurrentReturns = nullptr;
+	std::map<YulString, std::vector<TypedName>> m_functionReturnVariables;
+	std::list<Statement> m_newFunctionDefinitions;
 };
 
 }

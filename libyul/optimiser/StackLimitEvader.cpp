@@ -73,39 +73,27 @@ struct MemoryOffsetAllocator
 			{
 				FunctionDefinition const* functionDefinition = functionDefinitions.at(_function);
 				yulAssert(functionDefinition, "");
-
-				vector<YulString> parameters;
-				vector<YulString> returnVariables;
-				size_t unmovableArguments = 0;
-
-				for (TypedName const& param: functionDefinition->parameters)
-					parameters.emplace_back(param.name);
-
-				// If the function only has one return variable, the function can be called in complex
-				// expressions, so we always keep the return variable.
-				// Otherwise all return variables are eligible for moving.
-				if (functionDefinition->returnVariables.size() == 1)
-					unmovableArguments++;
+				size_t slotsNeeded = functionDefinition->returnVariables.size() + functionDefinition->parameters.size();
+				if (slotsNeeded >= 16)
+					slotsNeeded -= 16;
 				else
-					for (TypedName const& returnVariable: functionDefinition->returnVariables)
-						returnVariables.emplace_back(returnVariable.name);
+					slotsNeeded = 0;
 
-				// First try to	move return arguments.
-				while (
-					!returnVariables.empty() &&
-					unmovableArguments + returnVariables.size() + parameters.size() > 16
-				)
-				{
-					slotAllocations[returnVariables.back()] = requiredSlots++;
-					returnVariables.pop_back();
-				}
-
-				// In case moving return variables was not enough, move parameters as well from right to left.
-				while (unmovableArguments + returnVariables.size() + parameters.size() > 16)
-				{
-					slotAllocations[parameters.back()] = requiredSlots++;
-					parameters.pop_back();
-				}
+				if (slotsNeeded)
+					for (TypedName const& param: functionDefinition->parameters)
+					{
+						slotAllocations[param.name] = requiredSlots++;
+						if (!--slotsNeeded)
+							break;
+					}
+				if (slotsNeeded)
+					for (TypedName const& returnVar: functionDefinition->returnVariables)
+					{
+						slotAllocations[returnVar.name] = requiredSlots++;
+						if (!--slotsNeeded)
+							break;
+					}
+				yulAssert(!slotsNeeded, "");
 			}
 
 			// Assign slots for all variables that become unreachable in the function body, if the above did not

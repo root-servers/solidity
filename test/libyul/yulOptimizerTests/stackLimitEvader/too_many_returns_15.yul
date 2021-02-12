@@ -9,6 +9,7 @@
 	b1 := 1
 	b2 := 2
 	b15 := 15
+	sstore(b16, b30)
     }
 
 }
@@ -17,42 +18,42 @@
 //
 // {
 //     {
-//         mstore(0x40, memoryguard(0x0240))
+//         mstore(0x40, memoryguard(0x0260))
 //         let a1 := g(16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
-//         let a2 := mload(0x80)
-//         let a3 := mload(0xa0)
-//         let a4 := mload(0xc0)
-//         let a5 := mload(0xe0)
-//         let a6 := mload(0x0100)
-//         let a7 := mload(0x0120)
-//         let a8 := mload(0x0140)
-//         let a9 := mload(0x0160)
-//         let a10 := mload(0x0180)
-//         let a11 := mload(0x01a0)
-//         let a12 := mload(0x01c0)
-//         let a13 := mload(0x01e0)
-//         let a14 := mload(0x0200)
-//         let a15 := mload(0x0220)
+//         let a2 := mload(0xa0)
+//         let a3 := mload(0xc0)
+//         let a4 := mload(0xe0)
+//         let a5 := mload(0x0100)
+//         let a6 := mload(0x0120)
+//         let a7 := mload(0x0140)
+//         let a8 := mload(0x0160)
+//         let a9 := mload(0x0180)
+//         let a10 := mload(0x01a0)
+//         let a11 := mload(0x01c0)
+//         let a12 := mload(0x01e0)
+//         let a13 := mload(0x0200)
+//         let a14 := mload(0x0220)
+//         let a15 := mload(0x0240)
 //         sstore(0, 1)
 //         a1 := g(16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
-//         a2 := mload(0x80)
-//         a3 := mload(0xa0)
-//         a4 := mload(0xc0)
-//         a5 := mload(0xe0)
-//         a6 := mload(0x0100)
-//         a7 := mload(0x0120)
-//         a8 := mload(0x0140)
-//         a9 := mload(0x0160)
-//         a10 := mload(0x0180)
-//         a11 := mload(0x01a0)
-//         a12 := mload(0x01c0)
-//         a13 := mload(0x01e0)
-//         a14 := mload(0x0200)
-//         a15 := mload(0x0220)
+//         a2 := mload(0xa0)
+//         a3 := mload(0xc0)
+//         a4 := mload(0xe0)
+//         a5 := mload(0x0100)
+//         a6 := mload(0x0120)
+//         a7 := mload(0x0140)
+//         a8 := mload(0x0160)
+//         a9 := mload(0x0180)
+//         a10 := mload(0x01a0)
+//         a11 := mload(0x01c0)
+//         a12 := mload(0x01e0)
+//         a13 := mload(0x0200)
+//         a14 := mload(0x0220)
+//         a15 := mload(0x0240)
 //     }
 //     function g(b16, b17, b18, b19, b20, b21, b22, b23, b24, b25, b26, b27, b28, b29, b30) -> b1
 //     {
-//         mstore(0x80, 0)
+//         mstore(0x80, b30)
 //         mstore(0xa0, 0)
 //         mstore(0xc0, 0)
 //         mstore(0xe0, 0)
@@ -66,8 +67,10 @@
 //         mstore(0x01e0, 0)
 //         mstore(0x0200, 0)
 //         mstore(0x0220, 0)
+//         mstore(0x0240, 0)
 //         b1 := 1
-//         mstore(0x80, 2)
-//         mstore(0x0220, 15)
+//         mstore(0xa0, 2)
+//         mstore(0x0240, 15)
+//         sstore(b16, mload(0x80))
 //     }
 // }
