@@ -35,6 +35,29 @@ using namespace solidity;
 using namespace solidity::util;
 using namespace solidity::frontend;
 
+string YulUtilFunctions::convertExternalFunction(Type const& _from, Type const& _to)
+{
+	solAssert(
+		_from.category() == Type::Category::Function &&
+		_to.category() == Type::Category::Function &&
+		_from.isImplicitlyConvertibleTo(_to) &&
+		_from.sizeOnStack() == _to.sizeOnStack() &&
+		dynamic_cast<FunctionType const&>(_from).kind() == FunctionType::Kind::External &&
+		dynamic_cast<FunctionType const&>(_to).kind() == FunctionType::Kind::External,
+		"Invalid function type conversion requested"
+	);
+	string functionName = "convert_combined_function_id";
+	return m_functionCollector.createFunction(functionName, [&]() {
+		return Whiskers(R"(
+			function <functionName>(combined) -> out_combined {
+				out_combined := combined
+			}
+		)")
+		("functionName", functionName)
+		.render();
+	});
+}
+
 string YulUtilFunctions::combineExternalFunctionIdFunction()
 {
 	string functionName = "combine_external_function_id";

@@ -59,6 +59,10 @@ public:
 		m_functionCollector(_functionCollector)
 	{}
 
+	/// @returns a function that forwards the combined address function
+	/// selector, representing a function type in the ABI.
+	std::string convertExternalFunction(Type const& _from, Type const& _to);
+
 	/// @returns a function that combines the address and selector to a single value
 	/// for use in the ABI.
 	std::string combineExternalFunctionIdFunction();
