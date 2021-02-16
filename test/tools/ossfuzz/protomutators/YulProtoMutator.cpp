@@ -46,6 +46,33 @@ static LPMPostProcessor<Block> addStoreToZero(
 	}
 );
 
+
+namespace
+{
+template <typename T>
+struct addControlFlow
+{
+	using f = std::function<void(T*, unsigned)>;
+	addControlFlow()
+	{
+		function = [](T* _message, unsigned)
+		{
+			MutationInfo m{_message, "Added control flow."};
+			YPM::addControlFlow(_message);
+		};
+		/// Unused variable registers callback.
+		LPMPostProcessor<T> callback(function);
+	}
+	f function;
+};
+}
+
+static addControlFlow<ForStmt> c1;
+static addControlFlow<BoundedForStmt> c2;
+static addControlFlow<IfStmt> c3;
+static addControlFlow<SwitchStmt> c4;
+static addControlFlow<FunctionDef> c5;
+
 Literal* YPM::intLiteral(unsigned _value)
 {
 	auto lit = new Literal();
@@ -144,4 +171,57 @@ unsigned YPM::EnumTypeConverter<T>::enumMin()
 		return UnaryOpData_UOpData_UOpData_MIN;
 	else
 		static_assert(AlwaysFalse<T>::value, "Yul proto mutator: non-exhaustive visitor.");
+}
+
+template <typename T>
+void YPM::addControlFlow(T* _msg)
+{
+	enum class ControlFlowStmt: unsigned
+	{
+		For = 0,
+		BoundedFor,
+		If,
+		Switch,
+		FunctionCall,
+		Break,
+		Continue,
+		Leave,
+		Termination
+	};
+	uniform_int_distribution<unsigned> d(
+		static_cast<unsigned>(ControlFlowStmt::For),
+		static_cast<unsigned>(ControlFlowStmt::Termination)
+	);
+	auto random = static_cast<ControlFlowStmt>(d(s_rand.m_random));
+	Statement* s = _msg->mutable_block()->add_statements();
+	switch (random)
+	{
+	case ControlFlowStmt::For:
+		s->set_allocated_forstmt(new ForStmt());
+		break;
+	case ControlFlowStmt::BoundedFor:
+		s->set_allocated_boundedforstmt(new BoundedForStmt());
+		break;
+	case ControlFlowStmt::If:
+		s->set_allocated_ifstmt(new IfStmt());
+		break;
+	case ControlFlowStmt::Switch:
+		s->set_allocated_switchstmt(new SwitchStmt());
+		break;
+	case ControlFlowStmt::FunctionCall:
+		s->set_allocated_functioncall(new FunctionCall());
+		break;
+	case ControlFlowStmt::Break:
+		s->set_allocated_breakstmt(new BreakStmt());
+		break;
+	case ControlFlowStmt::Continue:
+		s->set_allocated_contstmt(new ContinueStmt());
+		break;
+	case ControlFlowStmt::Leave:
+		_msg->mutable_block()->add_statements()->set_allocated_leave(new LeaveStmt());
+		break;
+	case ControlFlowStmt::Termination:
+		_msg->mutable_block()->add_statements()->set_allocated_terminatestmt(new TerminatingStmt());
+		break;
+	}
 }
